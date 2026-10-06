@@ -1,0 +1,33 @@
+#!/bin/sh
+# Restore the CPU package long-term power limit (PL1) after the firmware
+# lowers it. The Lenovo firmware drops PL1 to 55 W after the package stays
+# above about 92 °C and never raises it again on its own.
+set -u
+
+ZONE=${RAPL_ZONE:-/sys/class/powercap/intel-rapl-mmio:0}
+AC_ONLINE=${RAPL_AC_ONLINE:-/sys/class/power_supply/AC/online}
+TARGET_UW=${RAPL_PL1_UW:-157000000}
+INTERVAL=${RAPL_INTERVAL:-5}
+LIMIT=$ZONE/constraint_0_power_limit_uw
+
+# Switching platform_profile away and back makes the firmware re-apply the
+# limits for the current profile. Writing the limit directly does not work:
+# the firmware writes its own value back within about 7 seconds.
+toggle_profile() {
+	profile=$(powerprofilesctl get) || return 1
+	other=balanced
+	[ "$profile" = balanced ] && other=performance
+	powerprofilesctl set "$other" && powerprofilesctl set "$profile"
+}
+
+while :; do
+	current=$(cat "$LIMIT") || exit 1
+	ac=$(cat "$AC_ONLINE" 2>/dev/null || echo 1)
+	# On battery the firmware sets lower limits on purpose; leave them alone.
+	if [ "$ac" = 1 ] && [ "$current" -lt "$TARGET_UW" ]; then
+		echo "PL1 is $current uW; switching power profile"
+		toggle_profile
+		echo "PL1 is now $(cat "$LIMIT") uW"
+	fi
+	sleep "$INTERVAL"
+done

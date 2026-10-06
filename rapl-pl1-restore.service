@@ -1,0 +1,11 @@
+[Unit]
+Description=Restore the CPU package power limit (PL1) when the firmware lowers it
+After=power-profiles-daemon.service
+
+[Service]
+ExecStart=/usr/local/sbin/rapl-pl1-restore
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
