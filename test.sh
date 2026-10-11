@@ -1,7 +1,8 @@
 #!/bin/sh
 # Run rapl-pl1-restore against fake sysfs files and a fake powerprofilesctl.
 # The fake powerprofilesctl writes 157 W to the limit file when the profile is
-# set back to performance, as the firmware does.
+# set back to performance, as the firmware does, unless setup is given
+# "ignore" as its third argument.
 set -u
 
 dir=$(dirname "$(readlink -f "$0")")
@@ -17,11 +18,13 @@ setup() {
 	mkdir "$tmp/bin"
 	echo "$1" > "$tmp/constraint_0_power_limit_uw"
 	echo "$2" > "$tmp/ac"
+	restore=true
+	[ "${3:-}" = ignore ] && restore=false
 	cat > "$tmp/bin/powerprofilesctl" <<-EOF
 	#!/bin/sh
 	echo "\$*" >> "$tmp/calls"
 	[ "\$1" = get ] && echo performance
-	[ "\$*" = "set performance" ] && echo 157000000 > "$tmp/constraint_0_power_limit_uw"
+	[ "\$*" = "set performance" ] && $restore && echo 157000000 > "$tmp/constraint_0_power_limit_uw"
 	exit 0
 	EOF
 	chmod +x "$tmp/bin/powerprofilesctl"
@@ -43,6 +46,14 @@ set balanced
 set performance"
 check "restores_pl1_on_ac" "$(cat "$tmp/constraint_0_power_limit_uw")" 157000000
 check "logs_the_lowered_and_restored_values" "$(cat "$tmp/out")" "PL1 is 55000000 uW; switching power profile
+PL1 is now 157000000 uW"
+rm -rf "$tmp"
+
+setup 55000000 1 ignore
+run
+check "writes_pl1_directly_when_profile_switch_does_not_restore_it" "$(cat "$tmp/constraint_0_power_limit_uw")" 157000000
+check "logs_the_direct_write" "$(cat "$tmp/out")" "PL1 is 55000000 uW; switching power profile
+PL1 is still 55000000 uW; writing 157000000 uW
 PL1 is now 157000000 uW"
 rm -rf "$tmp"
 

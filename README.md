@@ -9,11 +9,17 @@ after the CPU cools down.
 `/sys/class/powercap/intel-rapl-mmio:0/constraint_0_power_limit_uw` every 5
 seconds. When AC power is connected and the value is below the target, it
 switches the power profile to another one and back with `powerprofilesctl`,
-which makes the firmware re-apply the limits for the current profile. On
-battery it does nothing.
+which makes the firmware re-apply the limits for the current profile. If PL1
+is still below the target after the switch, it writes the target to the limit
+file directly. On battery it does nothing.
 
-Writing the limit file directly does not work: the firmware writes its own
-value back within about 7 seconds.
+The firmware behaves in one of two ways after it lowers PL1:
+
+- It re-applies the profile's limits on a profile switch, and it writes its
+  own value back within about 7 seconds of a direct write to the limit file.
+- It ignores profile switches, and it keeps a value written directly to the
+  limit file. On 2026-10-11 the firmware (BIOS N3TET64W) behaved this way
+  from 14:21 onward, with the CPU at 77–97 °C.
 
 ## Install
 
@@ -41,7 +47,8 @@ Set these environment variables in the unit (`systemctl edit rapl-pl1-restore`):
 journalctl -u rapl-pl1-restore
 ```
 
-Each restore logs the lowered value and the value after the profile switch.
+Each restore logs the lowered value, whether it wrote the limit directly, and
+the value afterward.
 
 ## Tests
 

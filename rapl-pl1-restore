@@ -11,8 +11,10 @@ INTERVAL=${RAPL_INTERVAL:-5}
 LIMIT=$ZONE/constraint_0_power_limit_uw
 
 # Switching platform_profile away and back makes the firmware re-apply the
-# limits for the current profile. Writing the limit directly does not work:
-# the firmware writes its own value back within about 7 seconds.
+# limits for the current profile. While the switch works, the firmware also
+# overwrites a direct write to the limit within about 7 seconds. At other
+# times the firmware ignores the switch and keeps a value written directly,
+# so the loop writes the limit when the switch does not restore it.
 toggle_profile() {
 	profile=$(powerprofilesctl get) || return 1
 	other=balanced
@@ -27,6 +29,11 @@ while :; do
 	if [ "$ac" = 1 ] && [ "$current" -lt "$TARGET_UW" ]; then
 		echo "PL1 is $current uW; switching power profile"
 		toggle_profile
+		current=$(cat "$LIMIT")
+		if [ "$current" -lt "$TARGET_UW" ]; then
+			echo "PL1 is still $current uW; writing $TARGET_UW uW"
+			echo "$TARGET_UW" > "$LIMIT"
+		fi
 		echo "PL1 is now $(cat "$LIMIT") uW"
 	fi
 	sleep "$INTERVAL"
