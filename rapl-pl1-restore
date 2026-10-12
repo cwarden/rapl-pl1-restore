@@ -6,9 +6,23 @@ set -u
 
 ZONE=${RAPL_ZONE:-/sys/class/powercap/intel-rapl-mmio:0}
 AC_ONLINE=${RAPL_AC_ONLINE:-/sys/class/power_supply/AC/online}
+POLICY=${RAPL_POLICY:-/sys/bus/platform/devices/INTC10A0:00/uuids/current_uuid}
 TARGET_UW=${RAPL_PL1_UW:-157000000}
 INTERVAL=${RAPL_INTERVAL:-5}
 LIMIT=$ZONE/constraint_0_power_limit_uw
+PASSIVE_UUID=42A441D6-AE6A-462b-A84B-4A8CE79027D3
+
+# Writing the DPTF passive policy UUID makes the int3400 driver call _OSC to
+# tell the firmware that the OS handles passive cooling. With the policy
+# selected, the firmware leaves PL1 at 157 W while the package is above 92 °C.
+# The driver does not call _OSC again after resume, and current_uuid shows the
+# driver's saved value rather than the firmware's, so the loop selects the
+# policy again whenever it finds PL1 lowered.
+select_policy() {
+	[ -e "$POLICY" ] || return 0
+	echo "Selecting DPTF passive policy"
+	echo "$PASSIVE_UUID" > "$POLICY"
+}
 
 # Switching platform_profile away and back makes the firmware re-apply the
 # limits for the current profile. While the switch works, the firmware also
@@ -22,11 +36,16 @@ toggle_profile() {
 	powerprofilesctl set "$other" && powerprofilesctl set "$profile"
 }
 
+if [ -e "$POLICY" ] && ! grep -qi "$PASSIVE_UUID" "$POLICY"; then
+	select_policy
+fi
+
 while :; do
 	current=$(cat "$LIMIT") || exit 1
 	ac=$(cat "$AC_ONLINE" 2>/dev/null || echo 1)
 	# On battery the firmware sets lower limits on purpose; leave them alone.
 	if [ "$ac" = 1 ] && [ "$current" -lt "$TARGET_UW" ]; then
+		select_policy
 		echo "PL1 is $current uW; switching power profile"
 		toggle_profile
 		current=$(cat "$LIMIT")
